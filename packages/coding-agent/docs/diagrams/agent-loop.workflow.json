@@ -1,0 +1,103 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Pi Agent Harness Loop and Context Stages",
+    "locale": "en",
+    "quality_profile": "showcase",
+    "views": [
+      {
+        "id": "turn-loop",
+        "label": "One turn",
+        "focus": ["prepare", "inject", "convert", "stream", "tools"],
+        "note": "Follow the context array from turn preparation to appended tool results."
+      },
+      {
+        "id": "compaction",
+        "label": "Compaction path",
+        "focus": ["threshold", "summarize", "rebuild", "gate"],
+        "note": "Both compaction entry points converge on the same summarize and rebuild steps."
+      },
+      {
+        "id": "session-loop",
+        "label": "Session loop",
+        "focus": ["prompt", "gate", "done"],
+        "note": "The outermost loop chooses between retry, compaction, queued work, and settling."
+      }
+    ],
+    "output": "agent-loop.html"
+  },
+  "lanes": [
+    { "id": "turn", "label": "Context Assembly" },
+    { "id": "request", "label": "Provider Request" },
+    { "id": "postrun", "label": "Post-run and Compaction" }
+  ],
+  "phases": [
+    { "id": "intake", "label": "Enter the loop", "fromCol": 0, "toCol": 1 },
+    { "id": "assemble", "label": "Build request context", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "execute", "label": "Respond and repeat", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "inner_loop", "label": "Inner turn loop", "lane": "request", "fromCol": 3, "toCol": 5, "variant": "emphasis" },
+    { "id": "compact_path", "label": "Compaction path", "lane": "postrun", "fromCol": 1, "toCol": 3, "variant": "security" }
+  ],
+  "mainPath": ["prompt", "prepare", "inject", "convert", "stream", "tools"],
+  "semanticChecks": {
+    "allowedRoots": ["prompt"],
+    "allowedTerminals": ["done"],
+    "requiredEdges": [
+      { "from": "tools", "to": "prepare" },
+      { "from": "rebuild", "to": "convert" }
+    ]
+  },
+  "nodes": [
+    { "id": "prompt", "lane": "turn", "col": 0, "type": "external", "label": "agent.prompt()", "sublabel": "user text + images", "width": 124 },
+    { "id": "prepare", "lane": "turn", "col": 1, "type": "backend", "label": "prepareNextTurn", "sublabel": "before each request", "tag": "threshold gate", "width": 124 },
+    { "id": "inject", "lane": "turn", "col": 2, "type": "messagebus", "label": "Append pending", "sublabel": "diffs and steering", "width": 124 },
+    { "id": "convert", "lane": "request", "col": 3, "type": "backend", "label": "convertToLlm", "sublabel": "normalize context", "width": 124 },
+    { "id": "stream", "lane": "request", "col": 4, "type": "cloud", "label": "Stream assistant", "sublabel": "partial then final", "width": 124 },
+    { "id": "tools", "lane": "request", "col": 5, "type": "messagebus", "label": "Execute tool calls", "sublabel": "results appended", "width": 124 },
+    { "id": "threshold", "lane": "postrun", "col": 1, "type": "security", "label": "Threshold check", "sublabel": "tokens vs window", "width": 124 },
+    { "id": "summarize", "lane": "postrun", "col": 2, "type": "backend", "label": "Summarize history", "sublabel": "keeps recent turns", "width": 124 },
+    { "id": "rebuild", "lane": "postrun", "col": 3, "type": "database", "label": "Rebuild messages", "sublabel": "summary + kept", "width": 124 },
+    { "id": "gate", "lane": "postrun", "col": 4, "type": "security", "label": "Post-run check", "sublabel": "follow-up or retry", "tag": "session gate", "width": 124 },
+    { "id": "done", "lane": "postrun", "col": 5, "type": "backend", "label": "Run settles", "sublabel": "queues empty", "width": 124 }
+  ],
+  "edges": [
+    { "id": "start-turn", "from": "prompt", "to": "prepare", "label": "new run", "variant": "emphasis", "role": "main" },
+    { "id": "prepare-inject", "from": "prepare", "to": "inject", "variant": "emphasis", "role": "main" },
+    { "id": "inject-convert", "from": "inject", "to": "convert", "label": "AgentMessage[]", "variant": "emphasis", "role": "main" },
+    { "id": "convert-stream", "from": "convert", "to": "stream", "label": "Message[]", "variant": "emphasis", "role": "main" },
+    { "id": "stream-tools", "from": "stream", "to": "tools", "label": "tool calls", "variant": "emphasis", "role": "main" },
+    { "id": "tools-loop", "from": "tools", "to": "prepare", "label": "next turn", "variant": "default", "role": "return" },
+    { "id": "stream-stop", "from": "stream", "to": "gate", "label": "no tool calls", "variant": "default", "role": "branch" },
+    { "id": "gate-continue", "from": "gate", "to": "prepare", "label": "follow-up queued", "variant": "dashed", "role": "branch" },
+    { "id": "gate-done", "from": "gate", "to": "done", "variant": "default", "role": "main" },
+    { "id": "gate-compact", "from": "gate", "to": "summarize", "label": "overflow or retry", "variant": "security", "role": "error" },
+    { "id": "prepare-threshold", "from": "prepare", "to": "threshold", "label": "over threshold", "variant": "security", "role": "branch" },
+    { "id": "threshold-summarize", "from": "threshold", "to": "summarize", "variant": "security" },
+    { "id": "summarize-rebuild", "from": "summarize", "to": "rebuild", "variant": "security" },
+    { "id": "rebuild-convert", "from": "rebuild", "to": "convert", "label": "compacted context", "variant": "emphasis", "role": "return" }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Context stages in one turn",
+      "items": [
+        "prepareNextTurn checks the compaction threshold and diffs the system prompt",
+        "Tool loadout changes and drained steering messages are appended as pending messages",
+        "transformContext then convertToLlm produce the provider payload",
+        "The assistant message and every tool result are appended to the same array"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "Two compaction entry points",
+      "items": [
+        "Threshold compaction runs inside the turn, before the next request",
+        "Overflow and truncation compaction runs after the run, then continues it",
+        "Both replace older history with a summary and keep recent turns"
+      ]
+    }
+  ]
+}
